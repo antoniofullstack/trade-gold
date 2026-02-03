@@ -10,7 +10,14 @@ from agent.dqn_agent import DQNAgent
 from utils.data_processor import load_and_prepare_data, create_sample_data, save_processed_data
 
 
-def train_agent(env, agent, episodes=1000, save_interval=100, model_dir="models"):
+def train_agent(
+    env,
+    agent,
+    episodes=1000,
+    save_interval=100,
+    model_dir="models",
+    train_every=1
+):
     """
     Train the DQN agent
     
@@ -44,7 +51,8 @@ def train_agent(env, agent, episodes=1000, save_interval=100, model_dir="models"
             next_state, reward, done = env.step(action)
             
             agent.remember(state, action, reward, next_state, done)
-            agent.replay()
+            if steps % train_every == 0:
+                agent.replay()
             
             state = next_state
             total_reward += reward
@@ -100,6 +108,8 @@ def main():
                        help='Learning rate')
     parser.add_argument('--batch-size', type=int, default=64,
                        help='Batch size')
+    parser.add_argument('--train-every', type=int, default=1,
+                       help='Train every N steps')
     
     args = parser.parse_args()
     
@@ -141,7 +151,8 @@ def main():
         agent=agent,
         episodes=args.episodes,
         save_interval=args.save_interval,
-        model_dir=args.model_dir
+        model_dir=args.model_dir,
+        train_every=args.train_every
     )
     
     print("\nTraining completed successfully!")

@@ -1,3 +1,4 @@
+from collections import deque
 import numpy as np
 import pandas as pd
 
@@ -18,8 +19,17 @@ class GoldTradingEnv:
         self.transaction_cost = transaction_cost
         self.stop_loss_pct = stop_loss_pct
         self.take_profit_pct = take_profit_pct
+        self._prepare_arrays()
 
         self.reset()
+
+    def _prepare_arrays(self):
+        self.data = self.data.reset_index(drop=True)
+        self.close_prices = self.data["Close"].to_numpy(dtype=np.float32)
+        self.returns = self.data["Return"].to_numpy(dtype=np.float32)
+        self.sma_fast = self.data["SMA_fast"].to_numpy(dtype=np.float32)
+        self.sma_slow = self.data["SMA_slow"].to_numpy(dtype=np.float32)
+        self.rsi = self.data["RSI"].to_numpy(dtype=np.float32)
 
     def reset(self):
         self.balance = self.initial_balance
@@ -33,7 +43,7 @@ class GoldTradingEnv:
         self.equity_history = []
         self.drawdown_history = []
         self.trade_history = []
-        self.returns_window = []
+        self.returns_window = deque(maxlen=20)
 
         return self._get_state()
 
@@ -44,7 +54,7 @@ class GoldTradingEnv:
         # Guardar net worth anterior para calcular retorno
         prev_net_worth = self.net_worth
         
-        price = self.data.loc[self.current_step, "Close"]
+        price = float(self.close_prices[self.current_step])
 
         # ---- AÇÃO: BUY (1) ----
         if action == 1:
@@ -156,8 +166,6 @@ class GoldTradingEnv:
 
         # Janela de retornos para volatilidade
         self.returns_window.append(step_return)
-        if len(self.returns_window) > 20:
-            self.returns_window.pop(0)
 
         volatility = np.std(self.returns_window) if len(self.returns_window) > 1 else 0.0
 
@@ -181,13 +189,11 @@ class GoldTradingEnv:
         return next_state, reward, done
 
     def _get_state(self):
-        row = self.data.loc[self.current_step]
-
         state = np.array([
-            row["Return"],
-            row["SMA_fast"],
-            row["SMA_slow"],
-            row["RSI"],
+            self.returns[self.current_step],
+            self.sma_fast[self.current_step],
+            self.sma_slow[self.current_step],
+            self.rsi[self.current_step],
             float(self.position),   # -1, 0, 1
             self.balance / self.initial_balance
         ], dtype=np.float32)
