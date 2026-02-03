@@ -53,6 +53,8 @@ class DQNAgent:
         self.learn_step = 0
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_amp = self.device.type == "cuda"
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
         self.model = QNetwork(state_size, action_size).to(self.device)
         self.target_model = QNetwork(state_size, action_size).to(self.device)
@@ -101,30 +103,46 @@ class DQNAgent:
 
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
-        weights = torch.FloatTensor(weights).unsqueeze(1).to(self.device)
+        # Convert lists to numpy arrays first for faster tensor creation
+        states = np.array(states, dtype=np.float32)
+        next_states = np.array(next_states, dtype=np.float32)
+        actions = np.array(actions, dtype=np.int64)
+        rewards = np.array(rewards, dtype=np.float32)
+        dones = np.array(dones, dtype=np.float32)
+        weights = np.array(weights, dtype=np.float32)
 
-        current_q = self.model(states).gather(1, actions)
+        states = torch.from_numpy(states).to(self.device)
+        actions = torch.from_numpy(actions).unsqueeze(1).to(self.device)
+        rewards = torch.from_numpy(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.from_numpy(next_states).to(self.device)
+        dones = torch.from_numpy(dones).unsqueeze(1).to(self.device)
+        weights = torch.from_numpy(weights).unsqueeze(1).to(self.device)
+
+        with torch.cuda.amp.autocast(enabled=self.use_amp):
+            current_q = self.model(states).gather(1, actions)
 
         # DOUBLE DQN
         with torch.no_grad():
-            next_actions = self.model(next_states).argmax(1, keepdim=True)
-            next_q = self.target_model(next_states).gather(1, next_actions)
-            target_q = rewards + (1 - dones) * self.gamma * next_q
+            with torch.cuda.amp.autocast(enabled=self.use_amp):
+                next_actions = self.model(next_states).argmax(1, keepdim=True)
+                next_q = self.target_model(next_states).gather(1, next_actions)
+                target_q = rewards + (1 - dones) * self.gamma * next_q
 
-        if self.use_per:
-            td_errors = torch.abs(target_q - current_q).detach().cpu().numpy()
-            loss = (weights * (current_q - target_q) ** 2).mean()
-        else:
-            loss = self.loss_fn(current_q, target_q)
+        with torch.cuda.amp.autocast(enabled=self.use_amp):
+            if self.use_per:
+                td_errors = torch.abs(target_q - current_q).detach().cpu().numpy()
+                loss = (weights * (current_q - target_q) ** 2).mean()
+            else:
+                loss = self.loss_fn(current_q, target_q)
 
         self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        if self.use_amp:
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            self.optimizer.step()
 
         # Atualizar prioridades se usar PER
         if self.use_per and indices is not None:
