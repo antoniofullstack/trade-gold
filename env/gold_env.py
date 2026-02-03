@@ -55,24 +55,24 @@ class GoldTradingEnv:
         prev_net_worth = self.net_worth
         
         price = float(self.close_prices[self.current_step])
+        trade_value = price * self.trade_size
+        fee = trade_value * self.transaction_cost
 
         # ---- AÇÃO: BUY (1) ----
         if action == 1:
             # abrir long
             if self.position == 0:
-                cost = price * self.trade_size
-                fee = cost * self.transaction_cost
-                if self.balance >= cost + fee:
-                    self.balance -= cost + fee
+                cost = trade_value + fee
+                if self.balance >= cost:
+                    self.balance -= cost
                     self.position = 1
                     self.entry_price = price
                     self.trade_history.append((self.current_step, price, "BUY"))
 
             # fechar short
             elif self.position == -1:
-                profit = (self.entry_price - price) * self.trade_size
-                fee = price * self.trade_size * self.transaction_cost
-                self.balance += (price * self.trade_size) + profit - fee
+                # recomprar para fechar short
+                self.balance -= trade_value + fee
                 self.position = 0
                 self.entry_price = 0.0
                 self.trade_history.append((self.current_step, price, "CLOSE_SHORT"))
@@ -81,17 +81,16 @@ class GoldTradingEnv:
         elif action == 2:
             # abrir short
             if self.position == 0:
-                fee = price * self.trade_size * self.transaction_cost
-                self.balance -= fee
+                # vender a descoberto: recebe o valor da venda
+                self.balance += trade_value - fee
                 self.position = -1
                 self.entry_price = price
                 self.trade_history.append((self.current_step, price, "SELL"))
 
             # fechar long
             elif self.position == 1:
-                profit = (price - self.entry_price) * self.trade_size
-                fee = price * self.trade_size * self.transaction_cost
-                self.balance += (price * self.trade_size) + profit - fee
+                # vender para fechar long
+                self.balance += trade_value - fee
                 self.position = 0
                 self.entry_price = 0.0
                 self.trade_history.append((self.current_step, price, "CLOSE_LONG"))
@@ -99,63 +98,47 @@ class GoldTradingEnv:
         # ---- AÇÃO: CLOSE (3) ----
         elif action == 3 and self.position != 0:
             if self.position == 1:
-                profit = (price - self.entry_price) * self.trade_size
+                # fechar long
+                self.balance += trade_value - fee
             else:
-                profit = (self.entry_price - price) * self.trade_size
-
-            fee = price * self.trade_size * self.transaction_cost
-            self.balance += (price * self.trade_size) + profit - fee
+                # fechar short
+                self.balance -= trade_value + fee
             self.position = 0
             self.entry_price = 0.0
             self.trade_history.append((self.current_step, price, "CLOSE"))
 
         # ---- ATUALIZA NET WORTH ----
-        if self.position == 1:  # LONG
-            unrealized = (price - self.entry_price) * self.trade_size
-            self.net_worth = self.balance + price * self.trade_size + unrealized
-        elif self.position == -1:  # SHORT
-            unrealized = (self.entry_price - price) * self.trade_size
-            self.net_worth = self.balance + price * self.trade_size + unrealized
-        else:
-            self.net_worth = self.balance
+        # Net worth = caixa + posição a mercado
+        self.net_worth = self.balance + (self.position * trade_value)
 
         # ---- STOP LOSS E TAKE PROFIT AUTOMÁTICOS ----
         if self.position != 0:
             if self.position == 1:  # LONG
                 if price <= self.entry_price * (1 - self.stop_loss_pct):
-                    profit = (price - self.entry_price) * self.trade_size
-                    fee = price * self.trade_size * self.transaction_cost
-                    self.balance += (price * self.trade_size) + profit - fee
+                    self.balance += trade_value - fee
                     self.position = 0
                     self.entry_price = 0.0
                     self.trade_history.append((self.current_step, price, "STOP_LOSS"))
                 elif price >= self.entry_price * (1 + self.take_profit_pct):
-                    profit = (price - self.entry_price) * self.trade_size
-                    fee = price * self.trade_size * self.transaction_cost
-                    self.balance += (price * self.trade_size) + profit - fee
+                    self.balance += trade_value - fee
                     self.position = 0
                     self.entry_price = 0.0
                     self.trade_history.append((self.current_step, price, "TAKE_PROFIT"))
 
             elif self.position == -1:  # SHORT
                 if price >= self.entry_price * (1 + self.stop_loss_pct):
-                    profit = (self.entry_price - price) * self.trade_size
-                    fee = price * self.trade_size * self.transaction_cost
-                    self.balance += (price * self.trade_size) + profit - fee
+                    self.balance -= trade_value + fee
                     self.position = 0
                     self.entry_price = 0.0
                     self.trade_history.append((self.current_step, price, "STOP_LOSS"))
                 elif price <= self.entry_price * (1 - self.take_profit_pct):
-                    profit = (self.entry_price - price) * self.trade_size
-                    fee = price * self.trade_size * self.transaction_cost
-                    self.balance += (price * self.trade_size) + profit - fee
+                    self.balance -= trade_value + fee
                     self.position = 0
                     self.entry_price = 0.0
                     self.trade_history.append((self.current_step, price, "TAKE_PROFIT"))
 
         # Recalcular net worth após stop/take
-        if self.position == 0:
-            self.net_worth = self.balance
+        self.net_worth = self.balance + (self.position * trade_value)
 
         # ---- ATUALIZAR MÉTRICAS ----
         self.max_net_worth = max(self.max_net_worth, self.net_worth)

@@ -243,3 +243,47 @@ Este projeto é para fins educacionais. Use por sua conta e risco.
 ---
 
 Desenvolvido com base em research quant profissional e melhores práticas de trading algorítmico.
+
+## ✅ Testes Locais (CPU)
+
+Use estas etapas para um teste rápido local sem GPU:
+
+1. Gerar CSVs por ano (treino e teste):
+```bash
+@'
+import pandas as pd
+
+src = r"data/xauusd.csv"
+train_year = 2023
+test_year = 2024
+
+df = pd.read_csv(src, sep=';')
+df["Time"] = pd.to_datetime(df["Time"], format="%Y.%m.%d %H:%M:%S", errors="coerce")
+df = df.dropna(subset=["Time"])
+
+train_df = df[df["Time"].dt.year == train_year]
+test_df = df[df["Time"].dt.year == test_year]
+
+train_df.to_csv(f"data/xauusd_{train_year}.csv", index=False, sep=';')
+test_df.to_csv(f"data/xauusd_{test_year}.csv", index=False, sep=';')
+
+print("train rows:", len(train_df))
+print("test rows:", len(test_df))
+'@ | python -
+```
+
+2. Treinar rápido no CPU:
+```bash
+python train.py --data data/xauusd_2023.csv --episodes 5 --batch-size 32 --train-every 4 --model-dir models
+```
+
+3. Avaliar no ano seguinte:
+```bash
+python evaluate.py --model models/model_final.pth --data data/xauusd_2024.csv --episodes 1 --plots --plot-dir plots
+```
+
+4. Ver histórico de trades (opcional):
+```bash
+python evaluate.py --model models/model_final.pth --data data/xauusd_2024.csv --episodes 1 --print-trades --max-trades 200
+python evaluate.py --model models/model_final.pth --data data/xauusd_2024.csv --episodes 1 --trades-file plots/trades_2024.csv
+```

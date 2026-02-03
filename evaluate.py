@@ -99,18 +99,29 @@ def plot_results(results, df, save_dir='plots'):
         axes[0].plot(price_data.values, label="Gold Price", color='black', alpha=0.7)
         
         # Plot trades
+        labels_used = set()
         for step, price, trade_type in result['trade_history']:
             if step < len(price_data):
-                if 'BUY' in trade_type:
-                    axes[0].scatter(step, price, marker='^', color='green', s=50, label='Buy' if step == result['trade_history'][0][0] else '')
-                elif 'SELL' in trade_type:
-                    axes[0].scatter(step, price, marker='v', color='red', s=50, label='Sell' if step == result['trade_history'][0][0] else '')
-                elif 'CLOSE' in trade_type:
-                    axes[0].scatter(step, price, marker='o', color='blue', s=30, alpha=0.6)
-                elif 'STOP_LOSS' in trade_type:
-                    axes[0].scatter(step, price, marker='x', color='orange', s=50, label='Stop Loss' if step == result['trade_history'][0][0] else '')
-                elif 'TAKE_PROFIT' in trade_type:
-                    axes[0].scatter(step, price, marker='*', color='purple', s=50, label='Take Profit' if step == result['trade_history'][0][0] else '')
+                if trade_type == 'BUY':
+                    label = 'Buy' if 'Buy' not in labels_used else ''
+                    labels_used.add('Buy')
+                    axes[0].scatter(step, price, marker='^', color='green', s=50, label=label)
+                elif trade_type == 'SELL':
+                    label = 'Sell' if 'Sell' not in labels_used else ''
+                    labels_used.add('Sell')
+                    axes[0].scatter(step, price, marker='v', color='red', s=50, label=label)
+                elif trade_type in ('CLOSE', 'CLOSE_LONG', 'CLOSE_SHORT'):
+                    label = 'Close' if 'Close' not in labels_used else ''
+                    labels_used.add('Close')
+                    axes[0].scatter(step, price, marker='o', color='blue', s=30, alpha=0.6, label=label)
+                elif trade_type == 'STOP_LOSS':
+                    label = 'Stop Loss' if 'Stop Loss' not in labels_used else ''
+                    labels_used.add('Stop Loss')
+                    axes[0].scatter(step, price, marker='x', color='orange', s=50, label=label)
+                elif trade_type == 'TAKE_PROFIT':
+                    label = 'Take Profit' if 'Take Profit' not in labels_used else ''
+                    labels_used.add('Take Profit')
+                    axes[0].scatter(step, price, marker='*', color='purple', s=50, label=label)
         
         axes[0].set_title(f'Episode {result["episode"]}: Gold Price & Trades')
         axes[0].set_ylabel('Price')
@@ -171,6 +182,48 @@ def print_summary(results):
     print(f"Worst Episode: {worst_episode['episode']} (Return: {worst_episode['total_return']:.2%})")
 
 
+def print_trade_history(results, max_trades=50):
+    """Print trade history for quick inspection"""
+    rows = []
+    for result in results:
+        for step, price, trade_type in result['trade_history']:
+            rows.append((result['episode'], step, price, trade_type))
+
+    if not rows:
+        print("\nNo trades recorded.")
+        return
+
+    total = len(rows)
+    rows = rows[:max_trades]
+    print("\n=== TRADE HISTORY (first entries) ===")
+    for episode, step, price, trade_type in rows:
+        print(f"Episode {episode} | Step {step} | Price {price:.3f} | {trade_type}")
+
+    if total > len(rows):
+        print(f"... {total - len(rows)} more trades")
+
+
+def save_trade_history(results, df, save_path):
+    """Save trade history to CSV"""
+    rows = []
+    has_date_col = 'Date' in df.columns
+    for result in results:
+        for step, price, trade_type in result['trade_history']:
+            row = {
+                'episode': result['episode'],
+                'step': step,
+                'price': price,
+                'trade_type': trade_type
+            }
+            if has_date_col and step < len(df):
+                row['date'] = df.iloc[step]['Date']
+            rows.append(row)
+
+    out_df = pd.DataFrame(rows)
+    out_df.to_csv(save_path, index=False)
+    print(f"Trade history saved: {save_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Evaluate trained DQN agent')
     parser.add_argument('--model', type=str, required=True,
@@ -183,6 +236,12 @@ def main():
                        help='Generate and save plots')
     parser.add_argument('--plot-dir', type=str, default='plots',
                        help='Directory to save plots')
+    parser.add_argument('--print-trades', action='store_true',
+                       help='Print trade history to console')
+    parser.add_argument('--max-trades', type=int, default=50,
+                       help='Max trades to print when using --print-trades')
+    parser.add_argument('--trades-file', type=str, default=None,
+                       help='Save trade history to CSV')
     
     args = parser.parse_args()
     
@@ -218,6 +277,12 @@ def main():
     
     # Print summary
     print_summary(results)
+
+    if args.print_trades:
+        print_trade_history(results, max_trades=args.max_trades)
+
+    if args.trades_file:
+        save_trade_history(results, df, args.trades_file)
     
     # Generate plots if requested
     if args.plots:

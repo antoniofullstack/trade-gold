@@ -30,7 +30,15 @@ def load_and_prepare_data(filepath, price_col='Close', separator=';', date_forma
         
         # Parse dates if Date column exists
         if 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'], format=date_format, errors='coerce')
+            if date_format:
+                parsed = pd.to_datetime(df['Date'], format=date_format, errors='coerce')
+                # Fallback for alternative formats (e.g., YYYY-MM-DD)
+                if parsed.notna().sum() == 0:
+                    parsed = pd.to_datetime(df['Date'], errors='coerce')
+            else:
+                parsed = pd.to_datetime(df['Date'], errors='coerce')
+
+            df['Date'] = parsed
             df = df.dropna(subset=['Date'])
             df = df.set_index('Date')
         
